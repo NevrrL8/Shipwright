@@ -1,6 +1,8 @@
 #include "TorchExtract.h"
 
 #include <exception>
+#include <fstream>
+#include <algorithm>
 #include <filesystem>
 #include <memory>
 #include <utility>
@@ -32,8 +34,7 @@ size_t CountAssetFiles(const std::string& ymlDir) {
     return count;
 }
 
-template <typename Rom>
-static std::string ExtractImpl(Rom rom, const std::string& srcDir, const std::string& destDir,
+std::string Extract(std::vector<uint8_t> rom, const std::string& srcDir, const std::string& destDir,
                     const std::string& portVersion, std::atomic<size_t>* progress) {
     std::string archiveName;
 
@@ -79,15 +80,29 @@ static std::string ExtractImpl(Rom rom, const std::string& srcDir, const std::st
     return archiveName;
 }
 
-std::string Extract(std::vector<uint8_t> rom, const std::string& srcDir, const std::string& destDir,
-                    const std::string& portVersion, std::atomic<size_t>* progress) {
-    return ExtractImpl(std::move(rom), srcDir, destDir, portVersion, progress);
-}
-
-// Retain the CLI's path entry point; the app supplies its validated, normalized bytes.
+// The CLI, like the app's Extractor, must normalize byte order before Torch hashes the ROM.
 std::string Extract(const std::string& romPath, const std::string& srcDir, const std::string& destDir,
                     const std::string& portVersion, std::atomic<size_t>* progress) {
-    return ExtractImpl(fs::path(romPath), srcDir, destDir, portVersion, progress);
+    std::ifstream input(romPath, std::ios::binary | std::ios::ate);
+    if (!input) return "";
+    const auto size = input.tellg();
+    if (size < 0x40 || size > 64 * 1024 * 1024 || size % 4 != 0) return "";
+    std::vector<uint8_t> rom(static_cast<size_t>(size));
+    input.seekg(0);
+    if (!input.read(reinterpret_cast<char*>(rom.data()), size)) return "";
+    if (rom[0] == 0x37 && rom[1] == 0x80 && rom[2] == 0x40 && rom[3] == 0x12) {
+        for (size_t i = 0; i < rom.size(); i += 2) std::swap(rom[i], rom[i + 1]);
+    } else if (rom[0] == 0x40 && rom[1] == 0x12 && rom[2] == 0x37 && rom[3] == 0x80) {
+        for (size_t i = 0; i < rom.size(); i += 4) std::reverse(rom.begin() + i, rom.begin() + i + 4);
+    }
+    if (rom[0] != 0x80 || rom[1] != 0x37 || rom[2] != 0x12 || rom[3] != 0x40) return "";
+    // Match the game's normalization of the padded PAL MQ debug dump.
+    if (rom.size() == 64 * 1024 * 1024 && rom[0x10] == 0x91 && rom[0x11] == 0x7D &&
+        rom[0x12] == 0x18 && rom[0x13] == 0xF6) {
+        rom.resize(54 * 1024 * 1024);
+        rom[0x3E] = 'P';
+    }
+    return Extract(std::move(rom), srcDir, destDir, portVersion, progress);
 }
 
 } // namespace SohTorch

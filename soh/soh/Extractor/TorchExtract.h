@@ -21,7 +21,7 @@ size_t CountAssetFiles(const std::string& ymlDir);
 std::string Extract(std::vector<uint8_t> rom, const std::string& srcDir, const std::string& destDir,
                     const std::string& portVersion, std::atomic<size_t>* progress);
 
-// CLI entry point: Torch reads and normalizes the file through its path constructor.
+// CLI entry point: read and normalize the file before Torch hashes it.
 std::string Extract(const std::string& romPath, const std::string& srcDir, const std::string& destDir,
                     const std::string& portVersion, std::atomic<size_t>* progress);
 
