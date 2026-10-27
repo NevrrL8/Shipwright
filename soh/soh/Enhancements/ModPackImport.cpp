@@ -22,7 +22,7 @@ std::string Extension(const fs::path& path) {
     return ext;
 }
 bool Pack(const fs::path& path) {
-    return Extension(path) == ".o2r"
+    return Extension(path) == ".o2r" || Extension(path) == ".ootrs"
 #ifdef INCLUDE_MPQ_SUPPORT
         || Extension(path) == ".otr"
 #endif
@@ -37,7 +37,7 @@ Zip OpenZip(const fs::path& path) {
 }
 void ValidateArchive(const fs::path& path) {
     if (fs::file_size(path) > MaxBytes) throw std::runtime_error("Pack exceeds the 16 GiB import limit.");
-    if (Extension(path) == ".o2r") {
+    if (Extension(path) == ".o2r" || Extension(path) == ".ootrs") {
         auto zip = OpenZip(path);
         uint64_t total = 0;
         for (zip_int64_t i = 0; i < zip_get_num_entries(zip.get(), 0); ++i) {
@@ -86,7 +86,7 @@ void ValidateArchive(const fs::path& path) {
         if (!valid) throw std::runtime_error("OTR has no readable file list or exceeds resource limits.");
     }
 #endif
-    else throw std::runtime_error("Choose a SoH .o2r or .otr pack, or a ZIP containing packs. Extract .7z first.");
+    else throw std::runtime_error("Choose a SoH .o2r, .otr or .ootrs pack, or a ZIP containing packs. Extract .7z first.");
 }
 }
 void Validate(const fs::path& input) { ValidateArchive(input); }

@@ -1,6 +1,9 @@
+#include <libultraship/bridge/consolevariablebridge.h>
+
 #include "soh/Enhancements/custom-message/CustomMessageManager.h"
 #include "soh/Enhancements/custom-message/CustomMessageTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor.h"
+#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
 #include "soh/Enhancements/randomizer/randomizer_entrance.h"
 #include "soh/ShipInit.hpp"
 
@@ -72,8 +75,8 @@ void HandleSaveMenu(bool* should, PlayState* play) {
             *should = false;
             if (Message_GetState(&play->msgCtx) == TEXT_STATE_CHOICE && Message_ShouldAdvance(play)) {
                 if (play->msgCtx.choiceIndex == 0) {
-                    Audio_PlaySoundGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                           &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                    Audio_PlaySfxGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                         &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                     Play_PerformSave(play);
                     pauseCtx->unk_1EC = 4;
                     if (IsSceneDungeon(gSaveContext.savedSceneNum) ||
@@ -117,35 +120,20 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                         break;
                     case 1:
                         // Reset (Dungeon) / Return to Spawn (Overworld)
-                        Audio_PlaySoundGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                        Audio_PlaySfxGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                             &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                         Play_SaveSceneFlags(play);
                         Sram_OpenSave();
-                        if (!IsSceneDungeon(gSaveContext.savedSceneNum)) {
-                            if (IS_RANDO && Randomizer_GetSettingValue(RSK_SHUFFLE_OVERWORLD_SPAWNS)) {
-                                if (LINK_AGE_IN_YEARS == YEARS_ADULT) {
-                                    gSaveContext.entranceIndex = ENTR_HYRULE_FIELD_10;
-                                }
-                                gSaveContext.entranceIndex = Entrance_OverrideNextIndex(gSaveContext.entranceIndex);
-                            }
-                        }
                         pauseCtx->promptChoice = 0;
                         pauseCtx->unk_1EC = 7;
                         break;
                     case 2:
                         // Reset to Spawn (Dungeon)
-                        Audio_PlaySoundGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
-                                               &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
+                        Audio_PlaySfxGeneral(NA_SE_SY_PIECE_OF_HEART, &gSfxDefaultPos, 4, &gSfxDefaultFreqAndVolScale,
+                                             &gSfxDefaultFreqAndVolScale, &gSfxDefaultReverb);
                         Play_SaveSceneFlags(play);
                         Sram_OpenSave();
-                        gSaveContext.entranceIndex = (LINK_AGE_IN_YEARS == YEARS_CHILD) ? ENTR_LINKS_HOUSE_CHILD_SPAWN
-                                                                                        : ENTR_TEMPLE_OF_TIME_WARP_PAD;
-                        if (IS_RANDO && Randomizer_GetSettingValue(RSK_SHUFFLE_OVERWORLD_SPAWNS)) {
-                            if (LINK_AGE_IN_YEARS == YEARS_ADULT) {
-                                gSaveContext.entranceIndex = ENTR_HYRULE_FIELD_10;
-                            }
-                            gSaveContext.entranceIndex = Entrance_OverrideNextIndex(gSaveContext.entranceIndex);
-                        }
+                        gSaveContext.ship.resetToSpawn = 1;
                         pauseCtx->promptChoice = 0;
                         pauseCtx->unk_1EC = 7;
                         break;
@@ -157,6 +145,7 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                 interfaceCtx->unk_244 += 10;
                 if (interfaceCtx->unk_244 >= 255) {
                     interfaceCtx->unk_244 = 255;
+                    GameInteractor_ExecuteOnExitGame(gSaveContext.fileNum);
                     pauseCtx->state = 0;
                     R_UPDATE_RATE = 3;
                     R_PAUSE_MENU_MODE = 0;
@@ -176,6 +165,22 @@ void HandleSaveMenu(bool* should, PlayState* play) {
                     SET_NEXT_GAMESTATE(&play->state, Play_Init, PlayState);
                     gSaveContext.seqId = static_cast<uint8_t>(NA_BGM_DISABLED);
                     gSaveContext.natureAmbienceId = 0xFF;
+                    GameInteractor_ExecuteOnLoadGame(gSaveContext.fileNum);
+                    if (gSaveContext.ship.resetToSpawn) {
+                        gSaveContext.respawnFlag = 0;
+                        if (!IS_RANDO) {
+                            gSaveContext.entranceIndex =
+                                LINK_IS_CHILD ? ENTR_LINKS_HOUSE_CHILD_SPAWN : ENTR_TEMPLE_OF_TIME_WARP_PAD;
+                        } else if (LINK_IS_CHILD) {
+                            gSaveContext.entranceIndex =
+                                Entrance_OverrideNextIndex(ENTR_LINKS_HOUSE_CHILD_SPAWN); // Child Overworld Spawn
+                        } else {
+                            // Adult Overworld Spawn. Normally 0x5F4 (ENTR_TEMPLE_OF_TIME_WARP_PAD), but 0x282
+                            // (ENTR_HYRULE_FIELD_10) repurposed to differentiate from Prelude which also uses 0x5F4
+                            gSaveContext.entranceIndex = Entrance_OverrideNextIndex(ENTR_HYRULE_FIELD_10);
+                        }
+                        gSaveContext.ship.resetToSpawn = 0;
+                    }
                 }
             }
             break;

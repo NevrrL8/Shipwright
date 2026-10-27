@@ -6,6 +6,7 @@
 #include <spdlog/spdlog.h>
 
 #include <ship/utils/StringHelper.h>
+#include <ship/Context.h>
 
 #include "mod_menu.h"
 #include "ModCatalog.h"
@@ -14,11 +15,13 @@
 #ifdef __IOS__
 #include "../../ios/HarkinianPadModImport.h"
 #endif
+#include "soh/Enhancements/audio/OotrsArchive.h"
 #include "soh/OTRGlobals.h"
 #include "soh/util.h"
 #include "soh/SohGui/MenuTypes.h"
 #include "soh/SohGui/SohMenu.h"
 #include "soh/SohGui/SohGui.hpp"
+#include "soh/SohGui/UIWidgets.hpp"
 
 std::vector<std::string> enabledModFiles;
 std::vector<std::string> disabledModFiles;
@@ -103,7 +106,9 @@ void HandleModSelection(size_t index, const std::string& file) {
     const ImGuiIO& io = ImGui::GetIO();
 
     if (io.KeyShift && lastSelectedModIndex >= 0 && lastSelectedModIndex < static_cast<int>(enabledModFiles.size())) {
-        auto [startIndex, endIndex] = std::minmax(static_cast<size_t>(lastSelectedModIndex), index);
+        const size_t lastIndex = static_cast<size_t>(lastSelectedModIndex);
+        const size_t startIndex = std::min(lastIndex, index);
+        const size_t endIndex = std::max(lastIndex, index);
         selectedEnabledModFiles.clear();
         for (size_t i = startIndex; i <= endIndex; i++)
             selectedEnabledModFiles.insert(enabledModFiles[i]);
@@ -195,10 +200,14 @@ bool IsValidExtension(std::string extension) {
 #endif
         // .zip needs to be excluded because mods are most often distributed in zip archives
         // and thus could contain .otr/o2r files
-        StringHelper::IEquals(extension, ".o2r") /*|| StringHelper::IEquals(extension, ".zip")*/) {
+        (StringHelper::IEquals(extension, ".o2r") || StringHelper::IEquals(extension, ".ootrs")) /*|| StringHelper::IEquals(extension, ".zip")*/) {
         return true;
     }
     return false;
+}
+
+bool IsOotrsExtension(std::string extension) {
+    return StringHelper::IEquals(extension, ".ootrs");
 }
 
 void UpdateModFiles(bool init = false, bool reset = false) {
@@ -245,16 +254,20 @@ void UpdateModFiles(bool init = false, bool reset = false) {
     disabledModFiles = selection.disabled;
     AfterModChange();
     size_t loaded = 0;
+    std::vector<std::filesystem::path> ootrsFiles;
     if (init) {
         for (const auto& id : enabledModFiles) {
             try {
                 // Also preflight manually copied packs before the runtime opens them.
                 ModPackImport::Validate(filePaths.at(id));
-                if (GetArchiveManager()->AddArchive(filePaths.at(id).generic_string())) ++loaded;
+                if (IsOotrsExtension(filePaths.at(id).extension().string())) {
+                    ootrsFiles.push_back(filePaths.at(id));
+                } else if (GetArchiveManager()->AddArchive(filePaths.at(id).generic_string())) ++loaded;
             } catch (const std::exception&) {
                 SPDLOG_WARN("HarkinianPad mods: archive preflight rejected a pack");
             }
         }
+        loaded += SOH::MountOotrsArchives(ootrsFiles);
         SPDLOG_INFO("HarkinianPad mods: discovered={}, enabled={}, disabled={}, loaded={}",
                     filePaths.size(), enabledModFiles.size(), disabledModFiles.size(), loaded);
         if (loaded != enabledModFiles.size()) {
@@ -443,10 +456,36 @@ void DrawMods(bool enabled) {
 
 bool editing = false;
 
-void ModMenuWindow::DrawElement() {
-    SohGui::mSohMenu->MenuDrawItem(enableModsWidget, 200, THEME_COLOR);
+void DrawCustomMusicSummary() {
+    size_t songCount = SOH::GetOotrsSongCount();
+    const std::vector<std::string>& skipped = SOH::GetOotrsSkippedForCustomBank();
+
+    if (songCount == 0 && skipped.empty()) {
+        return;
+    }
+
+    if (skipped.empty()) {
+        ImGui::Text("Custom Music: %zu song(s) loaded from .ootrs files", songCount);
+        return;
+    }
+
+    ImGui::Text("Custom Music: %zu song(s) loaded from .ootrs files", songCount);
     ImGui::SameLine();
-    SohGui::mSohMenu->MenuDrawItem(tabHotkeyWidget, 200, THEME_COLOR);
+    ImGui::TextColored(UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow), "(%zu skipped)", skipped.size());
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("Custom soundbanks are not supported yet:");
+        for (const std::string& file : skipped) {
+            ImGui::BulletText("%s", file.c_str());
+        }
+        ImGui::EndTooltip();
+    }
+}
+
+void ModMenuWindow::DrawElement() {
+    SohGui::mSohMenu->MenuDrawItem(enableModsWidget, THEME_COLOR);
+    ImGui::SameLine();
+    SohGui::mSohMenu->MenuDrawItem(tabHotkeyWidget, THEME_COLOR);
 
     ImGui::TextColored(
         UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow),
@@ -469,6 +508,16 @@ void ModMenuWindow::DrawElement() {
 #ifdef __IOS__
     ImGui::BeginDisabled(HarkinianPad_ModImportBusy());
 #endif
+    DrawCustomMusicSummary();
+
+    // if (UIWidgets::Button(
+    //         "Update", UIWidgets::ButtonOptions({ { .disabled = editing, .disabledTooltip = "Currently editing..." }
+    //         })
+    //                       .Size(UIWidgets::Sizes::Inline)
+    //                       .Color(THEME_COLOR))) {
+    //     UpdateModFiles();
+    // }
+    // ImGui::SameLine();
     if (UIWidgets::Button("Edit",
                           UIWidgets::ButtonOptions({ { .disabled = editing, .disabledTooltip = "Already editing..." } })
                               .Size(UIWidgets::Sizes::Inline)

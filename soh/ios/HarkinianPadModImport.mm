@@ -8,7 +8,7 @@
 
 static std::atomic_bool busy(false), completed(false);
 static std::mutex statusMutex;
-static std::string status = "Import .o2r, .otr, or ZIP packs. Extract .7z downloads first.";
+static std::string status = "Import .o2r, .otr, .ootrs, or ZIP packs. Extract .7z downloads first.";
 static void SetStatus(std::string message) {
     std::lock_guard<std::mutex> lock(statusMutex);
     status = std::move(message);
