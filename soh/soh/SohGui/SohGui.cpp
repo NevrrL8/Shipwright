@@ -156,7 +156,9 @@ std::vector<std::shared_ptr<Ship::GuiWindow>> GetAllGuiWindows() {
         mModalWindow,
         mNotificationWindow,
         mTimeDisplayWindow,
+#ifndef SOH_DISABLE_NETWORKING
         mAnchorRoomWindow,
+#endif
         // Registered outside SohGui.
         gui->GetGuiWindow("Configure Controller"),
         gui->GetGuiWindow("Console"),
