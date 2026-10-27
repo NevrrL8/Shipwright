@@ -808,7 +808,7 @@ bool LoadUserMappings() {
     Ship::Context::GetRawInstance()
         ->GetControlDeck()
         ->GetConnectedPhysicalDeviceManager()
-        ->RefreshConnectedSDLGamepads();
+        ->RefreshConnectedSDLGamepads("mapping-load");
     return true;
 }
 
@@ -843,7 +843,7 @@ bool SaveUserMapping(const std::string& mapping) {
     Ship::Context::GetRawInstance()
         ->GetControlDeck()
         ->GetConnectedPhysicalDeviceManager()
-        ->RefreshConnectedSDLGamepads();
+        ->RefreshConnectedSDLGamepads("mapping-save");
     return true;
 }
 
@@ -874,7 +874,7 @@ bool DeleteUserMapping(const std::string& guid) {
     Ship::Context::GetRawInstance()
         ->GetControlDeck()
         ->GetConnectedPhysicalDeviceManager()
-        ->RefreshConnectedSDLGamepads();
+        ->RefreshConnectedSDLGamepads("mapping-delete");
     return true;
 }
 
