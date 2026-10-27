@@ -1,24 +1,5 @@
 include(FetchContent)
 
-# ZAPDLib runs in-process for first-launch asset extraction and requires PNG.
-set(PNG_SHARED OFF CACHE BOOL "" FORCE)
-set(PNG_STATIC ON CACHE BOOL "" FORCE)
-set(PNG_FRAMEWORK OFF CACHE BOOL "" FORCE)
-set(PNG_TESTS OFF CACHE BOOL "" FORCE)
-set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(
-    PNG
-    GIT_REPOSITORY https://github.com/pnggroup/libpng.git
-    GIT_TAG v1.6.54
-    OVERRIDE_FIND_PACKAGE
-)
-FetchContent_MakeAvailable(PNG)
-
-# libpng's build-tree target is not exported under its installed package name.
-if(NOT TARGET PNG::PNG)
-    add_library(PNG::PNG ALIAS png_static)
-endif()
-
 # Keep the desktop custom-audio formats available in the iOS build.
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)

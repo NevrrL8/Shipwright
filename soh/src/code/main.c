@@ -1,7 +1,7 @@
 #ifdef _WIN32
 #include <Windows.h>
-#include <locale.h>
 #endif
+#include <locale.h>
 
 #include "global.h"
 #include "vt.h"
