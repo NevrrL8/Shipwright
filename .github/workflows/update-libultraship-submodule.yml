@@ -1,0 +1,35 @@
+
+name: Update libultraship submodule
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-libultraship:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Shipwright
+        uses: actions/checkout@v4
+        with:
+          ref: ios-networking-assets-test
+          submodules: false
+          persist-credentials: true
+
+      - name: Update libultraship pointer
+        run: |
+          git submodule sync -- libultraship
+          git submodule update --init libultraship
+          git -C libultraship fetch origin 3aa97fdfabac88ff0d2a2a143d8d3596df0f9fe9
+          git -C libultraship checkout 3aa97fdfabac88ff0d2a2a143d8d3596df0f9fe9
+          git add libultraship
+          if git diff --cached --quiet; then
+            echo "libultraship pointer already updated."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Pin libultraship with restored SDL UIKit patch"
+          git push origin HEAD:ios-networking-assets-test
