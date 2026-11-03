@@ -1,7 +1,7 @@
 [submodule "libultraship"]
 	path = libultraship
 	url = https://github.com/NevrrL8/libultraship.git
-    branch = iOS-networking
+    branch = iOS-Networking
 [submodule "ZAPDTR"]
 	path = ZAPDTR
 	url = https://github.com/chrissotraidis/ZAPDTR.git
