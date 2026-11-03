@@ -337,6 +337,24 @@ if(NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     endif()
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    if(NOT TARGET SDL2_net::SDL2_net-static)
+        message(FATAL_ERROR "SDL2_net static target is missing")
+    endif()
+
+    get_target_property(SDL2_NET_INCLUDE_DIRS
+        SDL2_net::SDL2_net-static
+        INTERFACE_INCLUDE_DIRECTORIES
+    )
+
+    if(SDL2_NET_INCLUDE_DIRS)
+        message(STATUS "SDL2_net include directories: ${SDL2_NET_INCLUDE_DIRS}")
+        target_include_directories(${PROJECT_NAME} PRIVATE
+            ${SDL2_NET_INCLUDE_DIRS}
+        )
+    endif()
+endif()
+
 if (ESPEAK)
     add_compile_definitions(ESPEAK=1)
 endif()
