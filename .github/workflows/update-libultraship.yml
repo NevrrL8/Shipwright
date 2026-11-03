@@ -1,0 +1,38 @@
+
+name: Update libultraship submodule
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-submodule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Shipwright
+        uses: actions/checkout@v4
+        with:
+          ref: iOS-networking
+          submodules: false
+
+      - name: Update libultraship
+        run: |
+          git submodule sync -- libultraship
+          git submodule update --init libultraship
+          git -C libultraship fetch origin iOS-Networking
+          git -C libultraship checkout FETCH_HEAD
+
+          git add .gitmodules libultraship
+
+          if git diff --cached --quiet; then
+            echo "No submodule changes needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "Pin networking-enabled libultraship"
+          git push origin HEAD:iOS-networking
