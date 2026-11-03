@@ -142,8 +142,6 @@ file(GLOB_RECURSE soh__ RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "soh/*.c" "soh/*.cp
 list(APPEND soh__ ${CMAKE_CURRENT_SOURCE_DIR}/soh/Enhancements/speechsynthesizer/DarwinSpeechSynthesizer.mm)
 
 if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    list(FILTER soh__ EXCLUDE REGEX "^soh/Network/")
-    list(FILTER soh__ EXCLUDE REGEX "^soh/SohGui/SohMenuNetwork\\.cpp$")
     list(APPEND soh__ ${CMAKE_CURRENT_SOURCE_DIR}/ios/HarkinianPadTouchControls.mm)
 endif()
 
@@ -406,7 +404,6 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_compile_definitions(${PROJECT_NAME} PRIVATE
         "$<$<CONFIG:Debug>:_DEBUG>"
         "$<$<CONFIG:Release>:NDEBUG>"
-        "SOH_DISABLE_NETWORKING;"
         "__IOS__;"
         "F3DEX_GBI_2;"
         "_CONSOLE;"
@@ -767,6 +764,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         "ZAPDLib;"
         SDL2::SDL2-static
         SDL2::SDL2main
+        SDL2_net::SDL2_net-static
         Ogg::ogg
         Vorbis::vorbis
         Vorbis::vorbisenc
