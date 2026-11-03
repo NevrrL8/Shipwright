@@ -1,8 +1,15 @@
 
 name: Update libultraship submodule
 
+
 on:
+  push:
+    branches:
+      - ios-networking-assets-test
+    paths:
+      - .github/workflows/update-libultraship-submodule.yml
   workflow_dispatch:
+
 
 permissions:
   contents: write
