@@ -29,8 +29,10 @@ jobs:
         run: |
           git submodule sync -- libultraship
           git submodule update --init libultraship
-          git -C libultraship fetch origin 3aa97fdfabac88ff0d2a2a143d8d3596df0f9fe9
-          git -C libultraship checkout 3aa97fdfabac88ff0d2a2a143d8d3596df0f9fe9
+          
+          git -C libultraship fetch origin ea85b4d387e41f90f4d8298885803cb36f290a5e
+          git -C libultraship checkout ea85b4d387e41f90f4d8298885803cb36f290a5e
+
           git add libultraship
           if git diff --cached --quiet; then
             echo "libultraship pointer already updated."
