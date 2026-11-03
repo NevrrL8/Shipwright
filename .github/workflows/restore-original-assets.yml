@@ -1,0 +1,64 @@
+
+name: Restore original custom assets
+
+on:
+  push:
+    branches:
+      - ios-networking-assets-test
+    paths:
+      - .github/workflows/restore-original-assets.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore-assets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out networking test branch
+        uses: actions/checkout@v4
+        with:
+          ref: ios-networking-assets-test
+          submodules: false
+
+      - name: Restore original custom assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ORIGINAL=dbf43d7d691cad2bcee15d8d974705c225abb13e
+          ASSETS=soh/assets/custom
+
+          git fetch --no-tags origin "$ORIGINAL"
+
+          if ! git cat-file -e "$ORIGINAL:$ASSETS"; then
+            echo "Original custom assets not found"
+            exit 1
+          fi
+
+          git rm -r -f --ignore-unmatch -- "$ASSETS"
+          rm -rf -- "$ASSETS"
+
+          git restore --source="$ORIGINAL" --staged --worktree -- "$ASSETS"
+
+          echo "Original custom assets restored."
+
+      - name: Commit restored assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git add -A -- soh/assets/custom
+
+          if git diff --cached --quiet; then
+            echo "No resource changes needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "Restore original pinned custom assets"
+          git push origin HEAD:ios-networking-assets-test
