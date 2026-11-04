@@ -42,3 +42,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "Pin libultraship with restored SDL UIKit patch"
           git push origin HEAD:ios-networking-assets-test
+
+          #This is just a comment to for e the workflow to commit.
