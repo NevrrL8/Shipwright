@@ -30,8 +30,8 @@ jobs:
           git submodule sync -- libultraship
           git submodule update --init libultraship
           
-          git -C libultraship fetch origin ea85b4d387e41f90f4d8298885803cb36f290a5e
-          git -C libultraship checkout ea85b4d387e41f90f4d8298885803cb36f290a5e
+          git -C libultraship fetch origin 03316fca90addc46a5b198b81a9fba79235639bb
+          git -C libultraship checkout 03316fca90addc46a5b198b81a9fba79235639bb
 
           git add libultraship
           if git diff --cached --quiet; then
