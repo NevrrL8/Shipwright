@@ -113,7 +113,11 @@ class Anchor : public Network {
 
   public:
     uint32_t ownClientId;
-    inline static const std::string clientVersion = (char*)gGitCommitHash;
+    // Anchor's version is a wire-compatibility ID, not this fork's build identity.
+    // The handlers, serializers and shared IDs match official desktop 9.3.1
+    // (f0599f96f8d442f26d0fa1c5cedafddacd56633f). Re-audit before changing them.
+    // Keep gGitCommitHash unchanged for diagnostics and build provenance.
+    inline static const std::string clientVersion = "f0599f9";
 
     // Packet types //
     inline static const std::string ALL_CLIENT_STATE = "ALL_CLIENT_STATE";
