@@ -1,12 +1,8 @@
-
 [submodule "libultraship"]
-    path = libultraship
-    url = https://github.com/NevrrL8/libultraship-iosnetwork.git
-    branch = iOS-Networking
-
-[submodule "ZAPDTR"]
-	path = ZAPDTR
-	url = https://github.com/chrissotraidis/ZAPDTR.git
-[submodule "OTRExporter"]
-	path = OTRExporter
-	url = https://github.com/harbourmasters/OTRExporter
+	path = libultraship
+	url = https://github.com/NevrrL8/libultraship-iosnetwork.git
+	branch = iOS-Networking
+[submodule "torch"]
+	path = torch
+	url = https://github.com/HarbourMasters/Torch.git
+	branch = main

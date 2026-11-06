@@ -3,7 +3,7 @@
 #include "objects/object_skj/object_skj.h"
 #include "soh/Enhancements/enhancementTypes.h"
 #include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
-#include "soh/ResourceManagerHelpers.h"
+#include <libultraship/bridge/consolevariablebridge.h>
 
 #define FLAGS                                                                                 \
     (ACTOR_FLAG_ATTENTION_ENABLED | ACTOR_FLAG_HOSTILE | ACTOR_FLAG_UPDATE_CULLING_DISABLED | \
@@ -471,8 +471,6 @@ void EnSkj_Destroy(Actor* thisx, PlayState* play) {
     EnSkj* this = (EnSkj*)thisx;
 
     Collider_DestroyCylinder(play, &this->collider);
-
-    ResourceMgr_UnregisterSkeleton(&this->skelAnime);
 }
 
 s32 EnSkj_RangeCheck(Player* player, EnSkj* this) {
@@ -1414,21 +1412,12 @@ void EnSkj_StartOcarinaMinigame(EnSkj* this, PlayState* play) {
 
     EnSkj_TurnPlayer(this, player);
 
-    if (dialogState == TEXT_STATE_CLOSING) {
-        // #region SOH [Enhancement]
-        if (CVarGetInteger(CVAR_ENHANCEMENT("InstantOcarinaGameWin"), 0) &&
-            CVarGetInteger(CVAR_ENHANCEMENT("CustomizeOcarinaGame"), 0)) {
-            play->msgCtx.ocarinaMode = OCARINA_MODE_0F;
+    if (dialogState == TEXT_STATE_CLOSING && GameInteractor_Should(VB_PLAY_LOST_WOODS_OCARINA_GAME, true, this)) {
+        func_8010BD58(play, OCARINA_ACTION_MEMORY_GAME);
+        if (sOcarinaMinigameSkullKids[SKULL_KID_LEFT].skullkid != NULL) {
+            sOcarinaMinigameSkullKids[SKULL_KID_LEFT].skullkid->minigameState = SKULL_KID_OCARINA_PLAY_NOTES;
             this->songFailTimer = 160;
             this->actionFunc = EnSkj_WaitForPlayback;
-            // #endregion
-        } else {
-            func_8010BD58(play, OCARINA_ACTION_MEMORY_GAME);
-            if (sOcarinaMinigameSkullKids[SKULL_KID_LEFT].skullkid != NULL) {
-                sOcarinaMinigameSkullKids[SKULL_KID_LEFT].skullkid->minigameState = SKULL_KID_OCARINA_PLAY_NOTES;
-                this->songFailTimer = 160;
-                this->actionFunc = EnSkj_WaitForPlayback;
-            }
         }
     }
 }
@@ -1478,12 +1467,7 @@ void EnSkj_WaitForPlayback(EnSkj* this, PlayState* play) {
                 break;
             case MSGMODE_MEMORY_GAME_PLAYER_PLAYING:
                 if (this->songFailTimer != 0) {
-                    // #region SOH [Enhancement]
-                    if (CVarGetInteger(CVAR_ENHANCEMENT("OcarinaUnlimitedFailTime"), 0) == 1 &&
-                        CVarGetInteger(CVAR_ENHANCEMENT("CustomizeOcarinaGame"), 0) == 1) {
-                        // don't decrement timer
-                        // #endregion
-                    } else {
+                    if (GameInteractor_Should(VB_LOST_WOODS_OCARINA_GAME_TIMER_TICK, true)) {
                         this->songFailTimer--;
                     }
                 } else { // took too long, game failed

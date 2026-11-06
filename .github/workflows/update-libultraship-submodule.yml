@@ -1,46 +1,25 @@
-
-name: Update libultraship submodule
-
+name: Verify networking library pin
 
 on:
   push:
-    branches:
-      - ios-networking-assets-test
-    paths:
-      - .github/workflows/update-libultraship-submodule.yml
+    branches: [ios-networking-assets-test]
+    paths: [.gitmodules, libultraship, .github/workflows/update-libultraship-submodule.yml]
   workflow_dispatch:
 
-
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  update-libultraship:
+  verify-library:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Check out Shipwright
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          ref: ios-networking-assets-test
-          submodules: false
-          persist-credentials: true
-
-      - name: Update libultraship pointer
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify the committed dependency graph
         run: |
-          git submodule sync -- libultraship
-          git submodule update --init libultraship
-          
-          git -C libultraship fetch origin 03316fca90addc46a5b198b81a9fba79235639bb
-          git -C libultraship checkout 03316fca90addc46a5b198b81a9fba79235639bb
-
-          git add libultraship
-          if git diff --cached --quiet; then
-            echo "libultraship pointer already updated."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Pin libultraship with restored SDL UIKit patch"
-          git push origin HEAD:ios-networking-assets-test
-
-          #This is just a comment to for e the workflow to commit.
+          test -z "$(git submodule status --recursive | sed -n '/^[+-U]/p')"
+          test -f libultraship/cmake/dependencies/patches/sdl2-uikit-scenes.patch
+          test -f libultraship/cmake/dependencies/patches/sdl2-uikit-orientation.patch

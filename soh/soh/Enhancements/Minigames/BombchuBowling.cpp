@@ -1,8 +1,12 @@
-#include "soh/Enhancements/game-interactor/GameInteractor_Hooks.h"
+#include <libultraship/bridge/consolevariablebridge.h>
+
+#include "soh/Enhancements/enhancementTypes.h"
+#include "soh/Enhancements/game-interactor/GameInteractor.h"
 #include "soh/ShipInit.hpp"
 
 extern "C" {
 #include "functions.h"
+#include "src/overlays/actors/ovl_En_Bom_Bowl_Man/z_en_bom_bowl_man.h"
 extern PlayState* gPlayState;
 }
 
@@ -18,6 +22,9 @@ extern PlayState* gPlayState;
 static constexpr s32 CUCCO_BOWLING_AMMO_DEFAULT = 10;
 #define CVAR_BOWLING_AMMO_NAME CVAR_ENHANCEMENT("BombchuBowlingAmmo")
 #define CVAR_BOWLING_AMMO_VALUE CVarGetInteger(CVAR_BOWLING_AMMO_NAME, CUCCO_BOWLING_AMMO_DEFAULT)
+
+#define CVAR_BOWLING_FIRST_PRIZE_NAME CVAR_ENHANCEMENT("BombchuBowlingFirstPrize")
+#define CVAR_BOWLING_FIRST_PRIZE_VALUE CVarGetInteger(CVAR_BOWLING_FIRST_PRIZE_NAME, BOWLING_FIRST_PRIZE_RANDOM)
 
 static constexpr f32 CUCCO_SEARCH_Z = -520.0f;
 
@@ -81,9 +88,30 @@ static void RegisterBombchuBowlingNoBigCucco() {
 }
 
 static void RegisterBombchuBowlingAmmo() {
-    COND_VB_SHOULD(VB_SET_BOMBCHU_BOWLING_AMMO,
-                   CVAR_BOWLING_VALUE && (CVAR_BOWLING_AMMO_VALUE != CUCCO_BOWLING_AMMO_DEFAULT), {
-                       gPlayState->bombchuBowlingStatus = CVAR_BOWLING_AMMO_VALUE;
+    static s32 prevAmmoValue = CUCCO_BOWLING_AMMO_DEFAULT;
+    s32 nextAmmoValue = CVAR_BOWLING_VALUE ? CVAR_BOWLING_AMMO_VALUE : CUCCO_BOWLING_AMMO_DEFAULT;
+
+    if ((prevAmmoValue != nextAmmoValue) && gPlayState != NULL && (gPlayState->bombchuBowlingStatus > 0)) {
+        gPlayState->bombchuBowlingStatus += nextAmmoValue - prevAmmoValue;
+        if (gPlayState->bombchuBowlingStatus <= 0) {
+            gPlayState->bombchuBowlingStatus = -1;
+        }
+        prevAmmoValue = nextAmmoValue;
+    }
+
+    COND_VB_SHOULD(VB_SET_BOMBCHU_BOWLING_AMMO, nextAmmoValue != CUCCO_BOWLING_AMMO_DEFAULT, {
+        prevAmmoValue = CVAR_BOWLING_AMMO_VALUE;
+        gPlayState->bombchuBowlingStatus = prevAmmoValue;
+        *should = false;
+    });
+}
+
+static void RegisterBombchuBowlingFirstPrize() {
+    COND_VB_SHOULD(VB_SET_BOMBCHU_BOWLING_PRIZE_SELECT,
+                   !IS_RANDO && CVAR_BOWLING_VALUE && (CVAR_BOWLING_FIRST_PRIZE_VALUE != BOWLING_FIRST_PRIZE_RANDOM), {
+                       EnBomBowlMan* bowlMan = va_arg(args, EnBomBowlMan*);
+                       s16 prizeSelect = CVAR_BOWLING_FIRST_PRIZE_VALUE - 1;
+                       bowlMan->prizeSelect = prizeSelect;
                        *should = false;
                    });
 }
@@ -93,3 +121,5 @@ static RegisterShipInitFunc initFunc_SmallCucco(RegisterBombchuBowlingNoSmallCuc
 static RegisterShipInitFunc initFunc_BigCucco(RegisterBombchuBowlingNoBigCucco,
                                               { CVAR_BOWLING_NAME, CVAR_CUCCO_BIG_NAME });
 static RegisterShipInitFunc initFunc_Ammo(RegisterBombchuBowlingAmmo, { CVAR_BOWLING_NAME, CVAR_BOWLING_AMMO_NAME });
+static RegisterShipInitFunc initFunc_FirstPrize(RegisterBombchuBowlingFirstPrize,
+                                                { CVAR_BOWLING_NAME, CVAR_BOWLING_FIRST_PRIZE_NAME, "IS_RANDO" });

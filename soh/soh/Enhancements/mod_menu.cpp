@@ -6,13 +6,22 @@
 #include <spdlog/spdlog.h>
 
 #include <ship/utils/StringHelper.h>
+#include <ship/Context.h>
 
 #include "mod_menu.h"
+#include "ModCatalog.h"
+#include "ModPackImport.h"
+#include <nlohmann/json.hpp>
+#ifdef __IOS__
+#include "../../ios/HarkinianPadModImport.h"
+#endif
+#include "soh/Enhancements/audio/OotrsArchive.h"
 #include "soh/OTRGlobals.h"
 #include "soh/util.h"
 #include "soh/SohGui/MenuTypes.h"
 #include "soh/SohGui/SohMenu.h"
 #include "soh/SohGui/SohGui.hpp"
+#include "soh/SohGui/UIWidgets.hpp"
 
 std::vector<std::string> enabledModFiles;
 std::vector<std::string> disabledModFiles;
@@ -64,19 +73,13 @@ static WidgetInfo tabHotkeyWidget;
 // - any private use character
 #define SEPARATOR "|"
 
+static bool catalogUsesPaths = false;
+static std::string catalogWarning;
+
 void SetEnabledModsCVarValue() {
-    std::string s = "";
-
-    for (auto& modPath : enabledModFiles) {
-        s += modPath + SEPARATOR;
-    }
-
-    // remove trailing separator if present
-    if (s.length() != 0) {
-        s.pop_back();
-    }
-
-    CVarSetString(CVAR_ENABLED_MODS_NAME, s.c_str());
+    nlohmann::json selection = enabledModFiles;
+    CVarSetString(CVAR_SETTING("Mods.EnabledPaths"), selection.dump().c_str());
+    catalogUsesPaths = true;
     Ship::Context::GetRawInstance()->GetWindow()->GetGui()->SaveConsoleVariablesNextFrame();
 }
 
@@ -84,7 +87,7 @@ void AfterModChange() {
     // disabled mods are always sorted
     std::sort(disabledModFiles.begin(), disabledModFiles.end(), [](const std::string& a, const std::string& b) {
         return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end(),
-                                            [](char c1, char c2) { return std::tolower(c1) < std::tolower(c2); });
+                                            [](char c1, char c2) { return std::tolower(static_cast<unsigned char>(c1)) < std::tolower(static_cast<unsigned char>(c2)); });
     });
 }
 
@@ -103,7 +106,9 @@ void HandleModSelection(size_t index, const std::string& file) {
     const ImGuiIO& io = ImGui::GetIO();
 
     if (io.KeyShift && lastSelectedModIndex >= 0 && lastSelectedModIndex < static_cast<int>(enabledModFiles.size())) {
-        auto [startIndex, endIndex] = std::minmax(static_cast<size_t>(lastSelectedModIndex), index);
+        const size_t lastIndex = static_cast<size_t>(lastSelectedModIndex);
+        const size_t startIndex = std::min(lastIndex, index);
+        const size_t endIndex = std::max(lastIndex, index);
         selectedEnabledModFiles.clear();
         for (size_t i = startIndex; i <= endIndex; i++)
             selectedEnabledModFiles.insert(enabledModFiles[i]);
@@ -195,89 +200,91 @@ bool IsValidExtension(std::string extension) {
 #endif
         // .zip needs to be excluded because mods are most often distributed in zip archives
         // and thus could contain .otr/o2r files
-        StringHelper::IEquals(extension, ".o2r") /*|| StringHelper::IEquals(extension, ".zip")*/) {
+        (StringHelper::IEquals(extension, ".o2r") || StringHelper::IEquals(extension, ".ootrs")) /*|| StringHelper::IEquals(extension, ".zip")*/) {
         return true;
     }
     return false;
 }
 
+bool IsOotrsExtension(std::string extension) {
+    return StringHelper::IEquals(extension, ".ootrs");
+}
+
 void UpdateModFiles(bool init = false, bool reset = false) {
-    size_t loadedArchives = 0;
-    size_t duplicateNames = 0;
+    catalogWarning.clear();
     if (init || reset) {
         enabledModFiles.clear();
-        enabledModFiles = GetEnabledModsFromCVar();
+        const std::string saved = CVarGetString(CVAR_SETTING("Mods.EnabledPaths"), "");
+        catalogUsesPaths = !saved.empty();
+        if (catalogUsesPaths) {
+            try {
+                enabledModFiles = nlohmann::json::parse(saved).get<std::vector<std::string>>();
+            } catch (...) {
+                catalogWarning = "Saved pack selection is invalid. Packs are disabled; select them again.";
+                SPDLOG_WARN("HarkinianPad mods: invalid saved selection; disabling packs");
+            }
+        } else {
+            enabledModFiles = GetEnabledModsFromCVar();
+        }
         ClearSelectedMods();
     }
-    disabledModFiles.clear();
-    unsupportedFiles.clear();
     filePaths.clear();
-    bool changed = false;
-    std::string modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
-    std::map<std::string, std::string> tempMods;
-    if (modsPath.length() > 0 && std::filesystem::exists(modsPath)) {
-        std::vector<std::filesystem::path> enabledFiles;
-        if (std::filesystem::is_directory(modsPath)) {
-            for (const std::filesystem::directory_entry& p : std::filesystem::recursive_directory_iterator(
-                     modsPath, std::filesystem::directory_options::follow_directory_symlink)) {
-                if (p.is_directory()) {
-                    continue;
-                }
-                std::string filename =
-                    p.path().filename().generic_string().substr(0, p.path().filename().generic_string().rfind("."));
-                std::string extension = p.path().extension().generic_string();
-                if (!IsValidExtension(extension)) {
-                    continue;
-                }
-                bool enabled = SohUtils::Contains(filename, enabledModFiles);
-                if (!enabled) {
-                    tempMods.emplace(p.path().lexically_normal().generic_string(), filename);
-                }
-                if (!filePaths.emplace(filename, p.path()).second) {
-                    ++duplicateNames;
-                }
+    unsupportedFiles.clear();
+    const std::filesystem::path modsPath = Ship::Context::LocateFileAcrossAppDirs("mods", appShortName);
+    std::error_code error;
+    if (!modsPath.empty() && std::filesystem::is_directory(modsPath, error)) {
+        auto it = std::filesystem::recursive_directory_iterator(
+            modsPath, std::filesystem::directory_options::skip_permission_denied, error);
+        const auto end = std::filesystem::recursive_directory_iterator();
+        while (!error && it != end) {
+            // Do not follow either directory or file symlinks out of the mod directory.
+            if (!it->is_symlink(error) && it->is_regular_file(error) &&
+                IsValidExtension(it->path().extension().string())) {
+                filePaths.emplace(it->path().lexically_relative(modsPath).generic_string(), it->path());
             }
-            if (tempMods.size() > 0) {
-                changed = true;
-                for (auto [path, name] : tempMods) {
-                    enabledModFiles.push_back(name);
-                }
-                tempMods.clear();
-            }
-            if (init) {
-                std::vector<std::string> enabledTemp(enabledModFiles);
-                for (std::string mod : enabledTemp) {
-                    if (filePaths.contains(mod)) {
-                        if (GetArchiveManager()->AddArchive(filePaths.at(mod).generic_string())) {
-                            ++loadedArchives;
-                        }
-                    } else {
-                        enabledModFiles.erase(std::find(enabledModFiles.begin(), enabledModFiles.end(), mod));
-                        changed = true;
-                    }
-                }
-            }
-        }
-        if (changed) {
-            SetEnabledModsCVarValue();
+            it.increment(error);
         }
     }
+    if (error) {
+        catalogWarning = "Some packs could not be scanned. Check Files permissions and refresh.";
+        SPDLOG_WARN("HarkinianPad mods: directory scan incomplete, error={}", error.value());
+    }
+    const auto selection = ModCatalog::Reconcile(filePaths, { enabledModFiles, {} }, !catalogUsesPaths);
+    enabledModFiles = selection.enabled;
+    disabledModFiles = selection.disabled;
+    AfterModChange();
+    size_t loaded = 0;
+    std::vector<std::filesystem::path> ootrsFiles;
     if (init) {
-        SPDLOG_INFO("HarkinianPad mods: discovered={}, requested={}, loaded={}, duplicate_names={}",
-                    filePaths.size(), enabledModFiles.size(), loadedArchives, duplicateNames);
-        if (duplicateNames != 0) {
-            SPDLOG_WARN("HarkinianPad mods: duplicate filename stems were ignored; use unique pack names");
+        for (const auto& id : enabledModFiles) {
+            try {
+                // Also preflight manually copied packs before the runtime opens them.
+                ModPackImport::Validate(filePaths.at(id));
+                if (IsOotrsExtension(filePaths.at(id).extension().string())) {
+                    ootrsFiles.push_back(filePaths.at(id));
+                } else if (GetArchiveManager()->AddArchive(filePaths.at(id).generic_string())) ++loaded;
+            } catch (const std::exception&) {
+                SPDLOG_WARN("HarkinianPad mods: archive preflight rejected a pack");
+            }
         }
-        if (loadedArchives != enabledModFiles.size()) {
-            SPDLOG_WARN("HarkinianPad mods: some requested archives failed to load");
+        loaded += SOH::MountOotrsArchives(ootrsFiles);
+        SPDLOG_INFO("HarkinianPad mods: discovered={}, enabled={}, disabled={}, loaded={}",
+                    filePaths.size(), enabledModFiles.size(), disabledModFiles.size(), loaded);
+        if (loaded != enabledModFiles.size()) {
+            catalogWarning = "Some enabled packs failed to load. Disable them and restart.";
+            SPDLOG_WARN("HarkinianPad mods: requested archives failed to load");
         }
+        // Preserve the previous stem-based setting for rollback to an older build.
+        if (!catalogUsesPaths && !error) SetEnabledModsCVarValue();
     }
 }
 
 extern "C" void gfx_texture_cache_clear();
 
 void EnableMod(std::string file) {
-    disabledModFiles.erase(std::find(disabledModFiles.begin(), disabledModFiles.end(), file));
+    auto found = std::find(disabledModFiles.begin(), disabledModFiles.end(), file);
+    if (found == disabledModFiles.end()) return;
+    disabledModFiles.erase(found);
     enabledModFiles.insert(enabledModFiles.begin(), file);
 
     // TODO: runtime changes
@@ -287,7 +294,9 @@ void EnableMod(std::string file) {
 }
 
 void DisableMod(std::string file) {
-    enabledModFiles.erase(std::find(enabledModFiles.begin(), enabledModFiles.end(), file));
+    auto found = std::find(enabledModFiles.begin(), enabledModFiles.end(), file);
+    if (found == enabledModFiles.end()) return;
+    enabledModFiles.erase(found);
     disabledModFiles.insert(disabledModFiles.begin(), file);
 
     // TODO: runtime changes
@@ -344,6 +353,7 @@ void DrawMods(bool enabled) {
     }
 
     bool madeAnyChange = false;
+    std::string togglePack;
     int switchFromIndex = -1;
     int switchToIndex = -1;
 
@@ -357,15 +367,8 @@ void DrawMods(bool enabled) {
         if (enabled) {
             ImGui::BeginGroup();
         }
-        // if (UIWidgets::StateButton((file + "_left_right").c_str(), enabled ? ICON_FA_ARROW_RIGHT :
-        // ICON_FA_ARROW_LEFT,
-        //                            ImVec2(25, 25), UIWidgets::ButtonOptions().Color(THEME_COLOR))) {
-        //     if (enabled) {
-        //         DisableMod(file);
-        //     } else {
-        //         EnableMod(file);
-        //     }
-        // }
+        if (ImGui::Button(((enabled ? "Disable##" : "Enable##") + file).c_str())) togglePack = file;
+        ImGui::SameLine();
 
         // it's not relevant to reorder disabled mods
         if (enabled) {
@@ -400,6 +403,9 @@ void DrawMods(bool enabled) {
 
         ImGui::SameLine();
         std::string displayName = filePaths.at(file).filename().generic_string();
+        if (std::count_if(filePaths.begin(), filePaths.end(), [&](const auto& entry) {
+                return entry.second.filename().generic_string() == displayName;
+            }) > 1) displayName = file;
         if (enabled) {
             ImGui::PushID(file.c_str());
             float selectableWidth =
@@ -408,6 +414,7 @@ void DrawMods(bool enabled) {
                                   ImVec2(selectableWidth, 0.0f)))
                 HandleModSelection(i, file);
             ImGui::PopID();
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", file.c_str());
         } else {
             ImGui::Text("%s", displayName.c_str());
         }
@@ -434,6 +441,12 @@ void DrawMods(bool enabled) {
         HandleModDropBoundaries();
     }
 
+    if (!togglePack.empty()) {
+        if (enabled) DisableMod(togglePack); else EnableMod(togglePack);
+        modRowBounds.clear();
+        return;
+    }
+
     if (madeAnyChange) {
         std::iter_swap(selectedModFiles.begin() + switchFromIndex, selectedModFiles.begin() + switchToIndex);
         ClearSelectedMods();
@@ -443,16 +456,59 @@ void DrawMods(bool enabled) {
 
 bool editing = false;
 
-void ModMenuWindow::DrawElement() {
-    SohGui::mSohMenu->MenuDrawItem(enableModsWidget, 200, THEME_COLOR);
+void DrawCustomMusicSummary() {
+    size_t songCount = SOH::GetOotrsSongCount();
+    const std::vector<std::string>& skipped = SOH::GetOotrsSkippedForCustomBank();
+
+    if (songCount == 0 && skipped.empty()) {
+        return;
+    }
+
+    if (skipped.empty()) {
+        ImGui::Text("Custom Music: %zu song(s) loaded from .ootrs files", songCount);
+        return;
+    }
+
+    ImGui::Text("Custom Music: %zu song(s) loaded from .ootrs files", songCount);
     ImGui::SameLine();
-    SohGui::mSohMenu->MenuDrawItem(tabHotkeyWidget, 200, THEME_COLOR);
+    ImGui::TextColored(UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow), "(%zu skipped)", skipped.size());
+    if (ImGui::IsItemHovered()) {
+        ImGui::BeginTooltip();
+        ImGui::Text("Custom soundbanks are not supported yet:");
+        for (const std::string& file : skipped) {
+            ImGui::BulletText("%s", file.c_str());
+        }
+        ImGui::EndTooltip();
+    }
+}
+
+void ModMenuWindow::DrawElement() {
+    SohGui::mSohMenu->MenuDrawItem(enableModsWidget, THEME_COLOR);
+    ImGui::SameLine();
+    SohGui::mSohMenu->MenuDrawItem(tabHotkeyWidget, THEME_COLOR);
 
     ImGui::TextColored(
         UIWidgets::ColorValues.at(UIWidgets::Colors::Yellow),
         "Mods are currently not reloaded at runtime. Close and re-open Ship for the changes to take effect.\n"
         "Drag ordering for the enabled list is available.\nMod priority is top to bottom. They override mods listed "
         "below them.");
+
+#ifdef __IOS__
+    if (HarkinianPad_ModImportCompleted()) UpdateModFiles();
+    ImGui::BeginDisabled(HarkinianPad_ModImportBusy() || editing);
+    if (ImGui::Button("Import Packs from Files")) HarkinianPad_ImportMods();
+    ImGui::EndDisabled();
+    ImGui::TextWrapped("%s", HarkinianPad_ModImportStatus().c_str());
+#endif
+    ImGui::BeginDisabled(editing);
+    if (ImGui::Button("Refresh Packs")) UpdateModFiles();
+    ImGui::EndDisabled();
+    ImGui::TextWrapped("New packs start disabled. Edit the list, enable packs, then save and restart.");
+    if (!catalogWarning.empty()) ImGui::TextWrapped("%s", catalogWarning.c_str());
+#ifdef __IOS__
+    ImGui::BeginDisabled(HarkinianPad_ModImportBusy());
+#endif
+    DrawCustomMusicSummary();
 
     // if (UIWidgets::Button(
     //         "Update", UIWidgets::ButtonOptions({ { .disabled = editing, .disabledTooltip = "Currently editing..." }
@@ -468,6 +524,9 @@ void ModMenuWindow::DrawElement() {
                               .Color(THEME_COLOR))) {
         editing = true;
     }
+#ifdef __IOS__
+    ImGui::EndDisabled();
+#endif
     if (editing) {
         ImGui::SameLine();
         if (UIWidgets::Button("Cancel", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
@@ -475,11 +534,22 @@ void ModMenuWindow::DrawElement() {
             UpdateModFiles(false, true);
         }
         ImGui::SameLine();
-        if (UIWidgets::Button("Clear List", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
-            SohGui::RegisterPopup("Clear List",
-                                  "Clear the current mod list and force a rebuild on next boot.\nClick Apply & Close "
+        if (UIWidgets::Button("Enable All", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
+            SohGui::RegisterPopup("Enable All",
+                                  "Enable all discovered packs, including optional add-ons? Check the author's load-order instructions.",
+                                  "Enable All", "Cancel", [&]() {
+                                      enabledModFiles.insert(enabledModFiles.end(), disabledModFiles.begin(), disabledModFiles.end());
+                                      disabledModFiles.clear();
+                                      ClearSelectedMods();
+                                  });
+        }
+        ImGui::SameLine();
+        if (UIWidgets::Button("Disable All", UIWidgets::ButtonOptions().Size(UIWidgets::Sizes::Inline))) {
+            SohGui::RegisterPopup("Disable All",
+                                  "Disable every pack without deleting files.\nClick Apply & Close "
                                   "to save this change.",
-                                  "Clear", "Cancel", [&]() {
+                                  "Disable All", "Cancel", [&]() {
+                                      disabledModFiles.insert(disabledModFiles.end(), enabledModFiles.begin(), enabledModFiles.end());
                                       enabledModFiles.clear();
                                       ClearSelectedMods();
                                       AfterModChange();
@@ -506,7 +576,7 @@ void ModMenuWindow::DrawElement() {
     ImGui::BeginDisabled(!editing);
     if (ImGui::BeginTable("tableMods", 2, ImGuiTableFlags_BordersH | ImGuiTableFlags_BordersV)) {
         ImGui::TableSetupColumn("Enabled Mods", ImGuiTableColumnFlags_WidthStretch, 200.0f);
-        // ImGui::TableSetupColumn("Disabled Mods", ImGuiTableColumnFlags_WidthStretch, 200.0f);
+        ImGui::TableSetupColumn("Disabled Mods", ImGuiTableColumnFlags_WidthStretch, 200.0f);
         ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
         ImGui::TableHeadersRow();
         ImGui::PopItemFlag();
@@ -516,17 +586,15 @@ void ModMenuWindow::DrawElement() {
 
         if (ImGui::BeginChild("Enabled Mods", ImVec2(0, -8))) {
             DrawMods(true);
-
-            ImGui::EndChild();
         }
+        ImGui::EndChild();
 
-        /*ImGui::TableNextColumn();
+        ImGui::TableNextColumn();
 
         if (ImGui::BeginChild("Disabled Mods", ImVec2(0, -8))) {
             DrawMods(false);
-
-            ImGui::EndChild();
-        }*/
+        }
+        ImGui::EndChild();
 
         ImGui::EndTable();
     }
@@ -538,12 +606,12 @@ void ModMenuWindow::InitElement() {
 }
 
 void RegisterModMenuWidgets() {
-    enableModsWidget = { .name = "Enable Mods", .type = WidgetType::WIDGET_CVAR_CHECKBOX };
+    enableModsWidget = { .name = "Alternate Assets", .type = WidgetType::WIDGET_CVAR_CHECKBOX };
     enableModsWidget.CVar(CVAR_SETTING("AltAssets"))
         .RaceDisable(false)
         .Options(UIWidgets::CheckboxOptions({ { .disabledTooltip = "Temporarily disabled while editing mods list." } })
                      .Color(THEME_COLOR)
-                     .Tooltip("Toggle mods. For graphics mods, this means toggling between default and mod graphics.")
+                     .Tooltip("Toggle alternate graphics. Use the pack lists below to enable or disable entire packs.")
                      .DefaultValue(true))
         .PreFunc([&](WidgetInfo& info) {
             auto options = std::static_pointer_cast<UIWidgets::CheckboxOptions>(info.options);
